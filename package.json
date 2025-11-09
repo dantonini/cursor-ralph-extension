@@ -22,6 +22,11 @@
       {
         "command": "ralph-extension.typeHelloWorld",
         "title": "Open Input Box with Text"
+      },
+      {
+        "command": "ralph-extension.stopLoop",
+        "title": "Stop Loop",
+        "icon": "$(stop)"
       }
     ]
   },
