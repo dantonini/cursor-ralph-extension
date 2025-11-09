@@ -98,13 +98,17 @@ async function waitForGitCommitAndExecuteCommandW(): Promise<void> {
                     log(`  Old HEAD: ${initialHead.substring(0, 7)}...`);
                     log(`  New HEAD: ${currentHead.substring(0, 7)}...`);
 
-                    // Execute Command+W (close active editor)
+                    // Wait 5 seconds before executing Command+W
+                    log('Waiting 5 seconds before executing Command+W...');
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+
+                    // Execute Command+W using AppleScript (close active editor)
                     try {
-                        log('Executing Command+W (close active editor)...');
-                        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-                        log('✓ Command+W executed successfully', true);
+                        log('Executing Command+W via AppleScript (close active editor)...');
+                        await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"w\\" using command down"');
+                        log('✓ Command+W executed successfully via AppleScript', true);
                     } catch (error) {
-                        log(`ERROR: Failed to execute Command+W: ${error}`, true);
+                        log(`ERROR: Failed to execute Command+W via AppleScript: ${error}`, true);
                     }
 
                     resolve();
