@@ -8,23 +8,33 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage('Hello World from Ralph Extension!');
     });
 
-    // Register command to open input box with predefined text
+    // Register command to execute sequence: focus IDE → Option+Cmd+B → Cmd+T → paste "123"
     let typeCommand = vscode.commands.registerCommand('ralph-extension.typeHelloWorld', async () => {
-        // Open an input box with predefined text "ola como estas"
-        const result = await vscode.window.showInputBox({
-            prompt: 'Enter text',
-            value: 'ola como estas',
-            valueSelection: [0, 17] // Select all text so user can easily replace it
-        });
-        
-        // Optional: do something with the result
-        if (result) {
-            console.log('User entered:', result);
-        }
+        const predefinedText = '123\n456\n789';
+
+        // Step 1: Focus the entire IDE window/editor
+        await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Step 2: Copy the predefined text to clipboard
+        await vscode.env.clipboard.writeText(predefinedText);
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Step 3: Execute Option + Command + B
+        await vscode.commands.executeCommand('composerMode.agent');
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        /*
+        // Step 4: Execute Command + T (Quick Open dialog)
+        await vscode.commands.executeCommand('workbench.action.quickOpen');
+        await new Promise(resolve => setTimeout(resolve, 150));
+*/
+        // Step 5: Paste the text using Command+V
+        await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
     });
 
     context.subscriptions.push(disposable, typeCommand);
 }
 
-export function deactivate() {}
+export function deactivate() { }
 
