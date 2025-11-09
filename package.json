@@ -1,0 +1,38 @@
+{
+  "name": "ralph-extension",
+  "displayName": "Ralph Extension",
+  "description": "A custom Cursor extension",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ralph-extension.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "ralph-extension.typeHelloWorld",
+        "title": "Open Input Box with Text"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^4.9.4"
+  }
+}
