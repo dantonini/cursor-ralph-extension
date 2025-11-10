@@ -267,6 +267,10 @@ async function executeWorkflowIteration(): Promise<boolean> {
     log('Step 6: Executing composerMode.agent (Option+Cmd+B)...');
     await vscode.commands.executeCommand('composerMode.agent');
     await new Promise(resolve => setTimeout(resolve, 100));
+    await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"w\\" using command down"');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"i\\" using command down"');
+    await new Promise(resolve => setTimeout(resolve, 100));
     log('Composer mode activated');
 
     // Step 7: Paste the text using Command+V
