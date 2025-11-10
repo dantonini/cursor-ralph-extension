@@ -2,7 +2,7 @@
   "name": "ralph-extension",
   "displayName": "Ralph Extension",
   "description": "A custom Cursor extension",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -16,12 +16,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "ralph-extension.helloWorld",
-        "title": "Hello World"
-      },
-      {
         "command": "ralph-extension.typeHelloWorld",
-        "title": "Open Input Box with Text"
+        "title": "Ralph Loop"
       },
       {
         "command": "ralph-extension.stopLoop",
@@ -33,7 +29,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "package": "npm run compile && vsce package"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",
