@@ -134,6 +134,7 @@ async function waitForGitCommitAndExecuteCommandW(): Promise<boolean> {
                     // Execute Command+W using AppleScript (close active editor)
                     try {
                         log('Executing Command+W via AppleScript (close active editor)...');
+                        await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"i\\" using command down"');
                         await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"w\\" using command down"');
                         log('✓ Command+W executed successfully via AppleScript', true);
                     } catch (error) {
