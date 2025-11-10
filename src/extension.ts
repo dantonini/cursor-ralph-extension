@@ -336,7 +336,8 @@ function updateStatusBar(): void {
 export function activate(context: vscode.ExtensionContext) {
     // Initialize output channel
     outputChannel = vscode.window.createOutputChannel('Ralph Extension');
-    log('Ralph Extension is now active!', true);
+    const version = context.extension.packageJSON.version || 'unknown';
+    log(`Ralph Extension is now active! (version ${version})`, true);
 
     // Create status bar items
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
