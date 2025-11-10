@@ -13,6 +13,7 @@ let stopStatusBarItem: vscode.StatusBarItem;
 let isLooping: boolean = false;
 let shouldStop: boolean = false;
 let selectedFile: vscode.Uri | null = null;
+let currentIterationCount: number = 0;
 
 /**
  * Logger utility that writes to VS Code's Output panel
@@ -320,8 +321,8 @@ async function executeWorkflowIteration(): Promise<boolean> {
  */
 function updateStatusBar(): void {
     if (isLooping) {
-        statusBarItem.text = '$(sync~spin) Ralph: Running';
-        statusBarItem.tooltip = 'Ralph Extension is running in loop mode';
+        statusBarItem.text = `$(sync~spin) Ralph: Running (Iteration ${currentIterationCount})`;
+        statusBarItem.tooltip = `Ralph Extension is running in loop mode - Current iteration: ${currentIterationCount}`;
         statusBarItem.show();
         stopStatusBarItem.text = '$(stop) Stop';
         stopStatusBarItem.tooltip = 'Click to stop the loop';
@@ -368,6 +369,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Reset stop flag and start looping
         shouldStop = false;
         isLooping = true;
+        currentIterationCount = 0;
         updateStatusBar();
 
         log('=== Starting loop mode ===', true);
@@ -376,6 +378,8 @@ export function activate(context: vscode.ExtensionContext) {
         try {
             while (!shouldStop) {
                 iterationCount++;
+                currentIterationCount = iterationCount;
+                updateStatusBar();
                 log(`\n--- Iteration ${iterationCount} ---`, true);
 
                 const result = await executeWorkflowIteration();
@@ -394,6 +398,7 @@ export function activate(context: vscode.ExtensionContext) {
         } finally {
             isLooping = false;
             shouldStop = false;
+            currentIterationCount = 0;
             selectedFile = null; // Reset selected file
             updateStatusBar();
             log(`=== Loop stopped after ${iterationCount} iteration(s) ===`, true);
