@@ -72,9 +72,9 @@ async function waitForGitCommitAndExecuteCommandW(): Promise<boolean> {
 
     log(`Monitoring for git commit (initial HEAD: ${initialHead.substring(0, 7)}...)`);
 
-    // Poll for commit changes (check every 5s)
-    const pollInterval = 5000;
-    const maxWaitTime = 5 * 60 * 1000; // 5 minutes max wait time
+    // Poll for commit changes (check every 20s)
+    const pollInterval = 20000;
+    const maxWaitTime = 20 * 60 * 1000; // 20 minutes max wait time
     const startTime = Date.now();
     let pollCount = 0;
 
