@@ -15,6 +15,10 @@ let shouldStop: boolean = false;
 let selectedFile: vscode.Uri | null = null;
 let currentIterationCount: number = 0;
 
+// ============================================================================
+// Logging
+// ============================================================================
+
 /**
  * Logger utility that writes to VS Code's Output panel
  */
@@ -33,18 +37,32 @@ function log(message: string, showChannel: boolean = false): void {
     }
 }
 
+// ============================================================================
+// Git Operations
+// ============================================================================
+
+/**
+ * Gets the workspace root path
+ */
+function getWorkspaceRoot(): string | null {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        log('No workspace folders found');
+        return null;
+    }
+    return workspaceFolders[0].uri.fsPath;
+}
+
 /**
  * Gets the current git HEAD commit hash
  */
 async function getCurrentGitHead(): Promise<string | null> {
     try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            log('No workspace folders found');
+        const workspaceRoot = getWorkspaceRoot();
+        if (!workspaceRoot) {
             return null;
         }
 
-        const workspaceRoot = workspaceFolders[0].uri.fsPath;
         log(`Getting git HEAD from: ${workspaceRoot}`);
         const { stdout } = await execAsync('git rev-parse HEAD', { cwd: workspaceRoot });
         const headHash = stdout.trim();
@@ -57,237 +75,277 @@ async function getCurrentGitHead(): Promise<string | null> {
 }
 
 /**
+ * Gets the initial git HEAD for monitoring
+ */
+async function getInitialGitHead(): Promise<string | null> {
+    const initialHead = await getCurrentGitHead();
+    if (!initialHead) {
+        log('ERROR: Not in a git repository or unable to get HEAD', true);
+        return null;
+    }
+    log(`Monitoring for git commit (initial HEAD: ${initialHead.substring(0, 7)}...)`);
+    return initialHead;
+}
+
+/**
+ * Checks if a commit has occurred by comparing HEAD hashes
+ */
+function hasCommitOccurred(initialHead: string, currentHead: string | null): boolean {
+    return currentHead !== null && currentHead !== initialHead;
+}
+
+/**
+ * Logs commit detection details
+ */
+function logCommitDetection(initialHead: string, currentHead: string): void {
+    log(`✓ Git commit detected! (new HEAD: ${currentHead.substring(0, 7)}...)`, true);
+    log(`  Old HEAD: ${initialHead.substring(0, 7)}...`);
+    log(`  New HEAD: ${currentHead.substring(0, 7)}...`);
+}
+
+/**
+ * Waits for a specified delay in milliseconds
+ */
+function waitForDelay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Executes Command+W using AppleScript to close active editor
+ */
+async function executeCommandW(): Promise<void> {
+    try {
+        log('Executing Command+W via AppleScript (close active editor)...');
+        await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"i\\" using command down"');
+        await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"w\\" using command down"');
+        log('✓ Command+W executed successfully via AppleScript', true);
+    } catch (error) {
+        log(`ERROR: Failed to execute Command+W via AppleScript: ${error}`, true);
+        throw error;
+    }
+}
+
+/**
+ * Checks if the loop should stop
+ */
+function checkIfShouldStop(): boolean {
+    return shouldStop;
+}
+
+/**
+ * Polls for git commit changes at specified intervals
+ */
+async function pollForGitCommit(
+    initialHead: string,
+    pollInterval: number,
+    maxWaitTime: number
+): Promise<boolean> {
+    const startTime = Date.now();
+    let pollCount = 0;
+
+    return new Promise((resolve) => {
+        const intervalId = setInterval(async () => {
+            if (checkIfShouldStop()) {
+                clearInterval(intervalId);
+                log('Loop stopped by user', true);
+                resolve(false);
+                return;
+            }
+
+            pollCount++;
+            const elapsed = Date.now() - startTime;
+
+            if (elapsed > maxWaitTime) {
+                clearInterval(intervalId);
+                log(`Timeout waiting for git commit (waited ${Math.round(elapsed / 1000)}s)`, true);
+                resolve(true);
+                return;
+            }
+
+            if (pollCount % 10 === 0) {
+                log(`Still waiting... (${Math.round(elapsed / 1000)}s elapsed, checked ${pollCount} times)`);
+            }
+
+            const currentHead = await getCurrentGitHead();
+
+            if (hasCommitOccurred(initialHead, currentHead)) {
+                clearInterval(intervalId);
+                logCommitDetection(initialHead, currentHead!);
+                resolve(true);
+            }
+        }, pollInterval);
+    });
+}
+
+/**
  * Waits for a git commit to occur and then executes Command+W (close active editor)
  */
 async function waitForGitCommitAndExecuteCommandW(): Promise<boolean> {
     log('=== Starting git commit monitoring ===', true);
 
-    // Get the initial commit hash
-    const initialHead = await getCurrentGitHead();
-
+    const initialHead = await getInitialGitHead();
     if (!initialHead) {
-        log('ERROR: Not in a git repository or unable to get HEAD', true);
         return false;
     }
 
-    log(`Monitoring for git commit (initial HEAD: ${initialHead.substring(0, 7)}...)`);
+    const pollInterval = 20000; // 20 seconds
+    const maxWaitTime = 20 * 60 * 1000; // 20 minutes
 
-    // Poll for commit changes (check every 20s)
-    const pollInterval = 20000;
-    const maxWaitTime = 20 * 60 * 1000; // 20 minutes max wait time
-    const startTime = Date.now();
-    let pollCount = 0;
+    const commitDetected = await pollForGitCommit(initialHead, pollInterval, maxWaitTime);
 
-    const checkForCommit = async (): Promise<boolean> => {
-        return new Promise((resolve) => {
-            const intervalId = setInterval(async () => {
-                // Check if we should stop
-                if (shouldStop) {
-                    clearInterval(intervalId);
-                    log('Loop stopped by user', true);
-                    resolve(false);
-                    return;
-                }
+    if (!commitDetected) {
+        log('=== Git commit monitoring completed (stopped) ===');
+        return false;
+    }
 
-                pollCount++;
+    if (checkIfShouldStop()) {
+        log('Loop stopped by user before executing Command+W', true);
+        return false;
+    }
 
-                // Check if we've exceeded max wait time
-                const elapsed = Date.now() - startTime;
-                if (elapsed > maxWaitTime) {
-                    clearInterval(intervalId);
-                    log(`Timeout waiting for git commit (waited ${Math.round(elapsed / 1000)}s)`, true);
-                    resolve(true);
-                    return;
-                }
+    log('Waiting 5 seconds before executing Command+W...');
+    await waitForDelay(5000);
 
-                // Log progress every 10 polls (every 5 seconds)
-                if (pollCount % 10 === 0) {
-                    log(`Still waiting... (${Math.round(elapsed / 1000)}s elapsed, checked ${pollCount} times)`);
-                }
+    if (checkIfShouldStop()) {
+        log('Loop stopped by user during wait', true);
+        return false;
+    }
 
-                // Check current HEAD
-                const currentHead = await getCurrentGitHead();
-
-                if (currentHead && currentHead !== initialHead) {
-                    clearInterval(intervalId);
-                    log(`✓ Git commit detected! (new HEAD: ${currentHead.substring(0, 7)}...)`, true);
-                    log(`  Old HEAD: ${initialHead.substring(0, 7)}...`);
-                    log(`  New HEAD: ${currentHead.substring(0, 7)}...`);
-
-                    // Check if we should stop before executing Command+W
-                    if (shouldStop) {
-                        log('Loop stopped by user before executing Command+W', true);
-                        resolve(false);
-                        return;
-                    }
-
-                    // Wait 5 seconds before executing Command+W
-                    log('Waiting 5 seconds before executing Command+W...');
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-
-                    // Check again if we should stop
-                    if (shouldStop) {
-                        log('Loop stopped by user during wait', true);
-                        resolve(false);
-                        return;
-                    }
-
-                    // Execute Command+W using AppleScript (close active editor)
-                    try {
-                        log('Executing Command+W via AppleScript (close active editor)...');
-                        await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"i\\" using command down"');
-                        await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"w\\" using command down"');
-                        log('✓ Command+W executed successfully via AppleScript', true);
-                    } catch (error) {
-                        log(`ERROR: Failed to execute Command+W via AppleScript: ${error}`, true);
-                    }
-
-                    resolve(true);
-                }
-            }, pollInterval);
-        });
-    };
-
-    const result = await checkForCommit();
+    await executeCommandW();
     log('=== Git commit monitoring completed ===');
-    return result;
+    return true;
 }
 
+// ============================================================================
+// File Operations
+// ============================================================================
+
 /**
- * Executes one iteration of the main workflow
+ * Finds all files matching the ralph-prompt.* pattern
  */
-async function executeWorkflowIteration(): Promise<boolean> {
-    // Check if we should stop before starting
-    if (shouldStop) {
-        return false;
-    }
-
-    log('=== Starting workflow iteration ===', true);
-
-    // Step 1: Find all files matching ralph-prompt.* pattern
+async function findRalphPromptFiles(): Promise<vscode.Uri[]> {
     log('Step 1: Searching for ralph-prompt.* files...');
     const files = await vscode.workspace.findFiles('**/ralph-prompt.*', null, 100);
     log(`Found ${files.length} file(s) matching pattern`);
+    return files;
+}
 
-    if (files.length === 0) {
-        log('ERROR: No files found matching pattern ralph-prompt.*', true);
-        vscode.window.showErrorMessage('No files found matching pattern ralph-prompt.*');
-        return false;
-    }
+/**
+ * Creates a file item for the quick pick
+ */
+function createFileItem(file: vscode.Uri): { label: string; description: string; file: vscode.Uri } {
+    return {
+        label: vscode.workspace.asRelativePath(file),
+        description: file.fsPath,
+        file: file
+    };
+}
 
-    // Step 2: Let user select a file (only on first iteration)
-    // For subsequent iterations, use the previously selected file
+/**
+ * Selects a file, reusing the previously selected file if available
+ */
+async function selectFile(files: vscode.Uri[]): Promise<vscode.Uri | null> {
     log('Step 2: Selecting file...');
 
-    let selected;
     if (selectedFile) {
-        // Use previously selected file if it still exists
         const fileItem = files.find(f => f.fsPath === selectedFile!.fsPath);
         if (fileItem) {
-            selected = {
-                label: vscode.workspace.asRelativePath(fileItem),
-                description: fileItem.fsPath,
-                file: fileItem
-            };
-            log(`Reusing previously selected file: ${selected.label}`);
+            log(`Reusing previously selected file: ${vscode.workspace.asRelativePath(fileItem)}`);
+            return fileItem;
         } else {
-            // File no longer exists, use first available
-            const fileItems = files.map(file => ({
-                label: vscode.workspace.asRelativePath(file),
-                description: file.fsPath,
-                file: file
-            }));
-            selected = fileItems[0];
-            selectedFile = selected.file;
-            log(`Previously selected file not found, using: ${selected.label}`);
+            log(`Previously selected file not found, using: ${vscode.workspace.asRelativePath(files[0])}`);
+            selectedFile = files[0];
+            return files[0];
         }
-    } else {
-        // First iteration - show picker
-        const fileItems = files.map(file => ({
-            label: vscode.workspace.asRelativePath(file),
-            description: file.fsPath,
-            file: file
-        }));
-
-        const selectedItem = await vscode.window.showQuickPick(fileItems, {
-            placeHolder: 'Select a ralph-prompt file'
-        });
-
-        if (!selectedItem) {
-            log('User cancelled file selection');
-            return false;
-        }
-        selected = selectedItem;
-        selectedFile = selected.file;
     }
 
-    log(`Using file: ${selected.label}`);
+    const fileItems = files.map(createFileItem);
+    const selectedItem = await vscode.window.showQuickPick(fileItems, {
+        placeHolder: 'Select a ralph-prompt file'
+    });
 
-    // Check if we should stop
-    if (shouldStop) {
-        return false;
+    if (!selectedItem) {
+        log('User cancelled file selection');
+        return null;
     }
 
-    // Step 3: Read the file content
+    selectedFile = selectedItem.file;
+    log(`Using file: ${selectedItem.label}`);
+    return selectedItem.file;
+}
+
+/**
+ * Reads the content of a file
+ */
+async function readFileContent(file: vscode.Uri): Promise<string> {
     log('Step 3: Reading file content...');
-    let fileContent: string;
     try {
-        const document = await vscode.workspace.openTextDocument(selected.file);
-        fileContent = document.getText();
-        log(`File content read successfully (${fileContent.length} characters)`);
+        const document = await vscode.workspace.openTextDocument(file);
+        const content = document.getText();
+        log(`File content read successfully (${content.length} characters)`);
+        return content;
     } catch (error) {
         log(`ERROR: Failed to read file: ${error}`, true);
-        vscode.window.showErrorMessage(`Failed to read file: ${error}`);
-        return false;
+        throw error;
     }
+}
 
-    // Check if we should stop
-    if (shouldStop) {
-        return false;
-    }
+// ============================================================================
+// UI/Editor Operations
+// ============================================================================
 
-    // Step 4: Focus the entire IDE window/editor
+/**
+ * Focuses the active editor group
+ */
+async function focusEditor(): Promise<void> {
     log('Step 4: Focusing active editor group...');
     await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await waitForDelay(50);
     log('Editor focused');
+}
 
-    // Step 5: Copy the file content to clipboard
+/**
+ * Copies text to the clipboard
+ */
+async function copyToClipboard(text: string): Promise<void> {
     log('Step 5: Copying content to clipboard...');
-    await vscode.env.clipboard.writeText(fileContent);
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await vscode.env.clipboard.writeText(text);
+    await waitForDelay(50);
     log('Content copied to clipboard');
+}
 
-    // Check if we should stop
-    if (shouldStop) {
-        return false;
-    }
-
-    // Step 6: Execute Option + Command + B
+/**
+ * Activates composer mode using keyboard shortcuts
+ */
+async function activateComposerMode(): Promise<void> {
     log('Step 6: Executing composerMode.agent (Option+Cmd+B)...');
     await vscode.commands.executeCommand('composerMode.agent');
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await waitForDelay(100);
     await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"w\\" using command down"');
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await waitForDelay(100);
     await execAsync('osascript -e "tell application \\"System Events\\" to keystroke \\"i\\" using command down"');
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await waitForDelay(100);
     log('Composer mode activated');
+}
 
-    // Step 7: Paste the text using Command+V
+/**
+ * Pastes content from clipboard
+ */
+async function pasteContent(): Promise<void> {
     log('Step 7: Pasting content (Cmd+V)...');
     await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await waitForDelay(200);
     log('Content pasted');
+}
 
-    // Check if we should stop
-    if (shouldStop) {
-        return false;
-    }
-
-    // Step 8: Press Enter to trigger the action
+/**
+ * Simulates Enter keypress with fallback methods
+ */
+async function simulateEnterKey(): Promise<void> {
     log('Step 8: Simulating Enter keypress via AppleScript...');
+    await waitForDelay(100);
+
     try {
-        await new Promise(resolve => setTimeout(resolve, 100));
         await execAsync('osascript -e "tell application \\"System Events\\" to keystroke return"');
         log('✓ Enter keypress simulated successfully via AppleScript');
     } catch (error) {
@@ -307,18 +365,78 @@ async function executeWorkflowIteration(): Promise<boolean> {
             }
         }
     }
+}
 
-    // Check if we should stop
-    if (shouldStop) {
+// ============================================================================
+// Workflow Execution
+// ============================================================================
+
+/**
+ * Executes one iteration of the main workflow
+ */
+async function executeWorkflowIteration(): Promise<boolean> {
+    if (checkIfShouldStop()) {
         return false;
     }
 
-    // Step 9: Wait for git commit and execute Command+W when commit happens
-    log('Step 9: Starting git commit monitoring...');
-    const result = await waitForGitCommitAndExecuteCommandW();
-    log('=== Workflow iteration completed ===');
-    return result;
+    log('=== Starting workflow iteration ===', true);
+
+    try {
+        const files = await findRalphPromptFiles();
+        if (files.length === 0) {
+            log('ERROR: No files found matching pattern ralph-prompt.*', true);
+            vscode.window.showErrorMessage('No files found matching pattern ralph-prompt.*');
+            return false;
+        }
+
+        const selected = await selectFile(files);
+        if (!selected) {
+            return false;
+        }
+
+        if (checkIfShouldStop()) {
+            return false;
+        }
+
+        const fileContent = await readFileContent(selected);
+        if (checkIfShouldStop()) {
+            return false;
+        }
+
+        await focusEditor();
+        await copyToClipboard(fileContent);
+
+        if (checkIfShouldStop()) {
+            return false;
+        }
+
+        await activateComposerMode();
+        await pasteContent();
+
+        if (checkIfShouldStop()) {
+            return false;
+        }
+
+        await simulateEnterKey();
+
+        if (checkIfShouldStop()) {
+            return false;
+        }
+
+        log('Step 9: Starting git commit monitoring...');
+        const result = await waitForGitCommitAndExecuteCommandW();
+        log('=== Workflow iteration completed ===');
+        return result;
+    } catch (error) {
+        log(`ERROR in workflow iteration: ${error}`, true);
+        vscode.window.showErrorMessage(`Failed to execute workflow: ${error}`);
+        return false;
+    }
 }
+
+// ============================================================================
+// Status Bar Management
+// ============================================================================
 
 /**
  * Updates the status bar to show current loop status
@@ -336,6 +454,62 @@ function updateStatusBar(): void {
         stopStatusBarItem.hide();
     }
 }
+
+// ============================================================================
+// Loop Management
+// ============================================================================
+
+/**
+ * Resets the loop state
+ */
+function resetLoopState(): void {
+    isLooping = false;
+    shouldStop = false;
+    currentIterationCount = 0;
+    selectedFile = null;
+    updateStatusBar();
+}
+
+/**
+ * Runs the main workflow loop
+ */
+async function runWorkflowLoop(): Promise<void> {
+    shouldStop = false;
+    isLooping = true;
+    currentIterationCount = 0;
+    updateStatusBar();
+
+    log('=== Starting loop mode ===', true);
+    let iterationCount = 0;
+
+    try {
+        while (!shouldStop) {
+            iterationCount++;
+            currentIterationCount = iterationCount;
+            updateStatusBar();
+            log(`\n--- Iteration ${iterationCount} ---`, true);
+
+            const result = await executeWorkflowIteration();
+
+            if (shouldStop || !result) {
+                break;
+            }
+
+            await waitForDelay(1000);
+        }
+    } catch (error) {
+        log(`ERROR in loop: ${error}`, true);
+        vscode.window.showErrorMessage(`Error in loop: ${error}`);
+    } finally {
+        resetLoopState();
+        log(`=== Loop stopped after ${iterationCount} iteration(s) ===`, true);
+        vscode.window.showInformationMessage(`Ralph Extension loop stopped after ${iterationCount} iteration(s)`);
+    }
+}
+
+// ============================================================================
+// Extension Activation
+// ============================================================================
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize output channel
@@ -371,48 +545,10 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        // Reset stop flag and start looping
-        shouldStop = false;
-        isLooping = true;
-        currentIterationCount = 0;
-        updateStatusBar();
-
-        log('=== Starting loop mode ===', true);
-        let iterationCount = 0;
-
-        try {
-            while (!shouldStop) {
-                iterationCount++;
-                currentIterationCount = iterationCount;
-                updateStatusBar();
-                log(`\n--- Iteration ${iterationCount} ---`, true);
-
-                const result = await executeWorkflowIteration();
-
-                // If workflow was stopped or failed, break the loop
-                if (shouldStop || !result) {
-                    break;
-                }
-
-                // Small delay before next iteration
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        } catch (error) {
-            log(`ERROR in loop: ${error}`, true);
-            vscode.window.showErrorMessage(`Error in loop: ${error}`);
-        } finally {
-            isLooping = false;
-            shouldStop = false;
-            currentIterationCount = 0;
-            selectedFile = null; // Reset selected file
-            updateStatusBar();
-            log(`=== Loop stopped after ${iterationCount} iteration(s) ===`, true);
-            vscode.window.showInformationMessage(`Ralph Extension loop stopped after ${iterationCount} iteration(s)`);
-        }
+        await runWorkflowLoop();
     });
 
     context.subscriptions.push(disposable, typeCommand, stopCommand, statusBarItem, stopStatusBarItem, outputChannel);
 }
 
 export function deactivate() { }
-
