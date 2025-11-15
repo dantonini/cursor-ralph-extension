@@ -140,27 +140,32 @@ async function pollForGitCommit(
     pollInterval: number,
     maxWaitTime: number
 ): Promise<boolean> {
-    const startTime = Date.now();
-
     return new Promise(async (resolve) => {
         while (true) {
-            await waitForDelay(500);
-            if (checkIfShouldStop()) {
-                log('Loop stopped by user', true);
-                resolve(false);
+            const startTime = Date.now();
+            log('Checking for should stop ...');
+            while (true) {
+                await waitForDelay(500);
+                if (checkIfShouldStop()) {
+                    log('Loop stopped by user', true);
+                    resolve(false);
+                    return;
+                }
+                const elapsed = Date.now() - startTime;
+                log(`Elapsed: ${elapsed}ms`);
+                if (elapsed > pollInterval) {
+                    break;
+                }
+            }
+
+            log('Fetching current git head ...');
+            const currentHead = await getCurrentGitHead();
+
+            if (hasCommitOccurred(initialHead, currentHead)) {
+                logCommitDetection(initialHead, currentHead!);
+                resolve(true);
                 return;
             }
-            const elapsed = Date.now() - startTime;
-            if (elapsed > pollInterval) {
-                break;
-            }
-        }
-
-        const currentHead = await getCurrentGitHead();
-
-        if (hasCommitOccurred(initialHead, currentHead)) {
-            logCommitDetection(initialHead, currentHead!);
-            resolve(true);
         }
     });
 }
